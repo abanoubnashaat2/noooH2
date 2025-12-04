@@ -164,7 +164,7 @@ const SpinWheel: React.FC<SpinWheelProps> = ({ onWin, onClose, canSpin }) => {
                   <button onClick={onClose} className="bg-white text-slate-900 px-6 py-2 rounded-lg font-bold">إغلاق</button>
               </div>
           )}
-          {!canSpin && !isSpinning && !result && <p className="text-xs text-slate-400">لقد استخدمت محاولتك بالفعل، المكافأة متاحة مرة واحدة فقط.</p>}
+          {!canSpin && !isSpinning && !result && <p className="text-xs text-slate-400">يمكنك اللعب مرة واحدة كل دقيقة</p>}
       </div>
     </div>
   );

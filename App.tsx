@@ -501,8 +501,8 @@ const App = () => {
   const renderContent = () => {
     // Spin Wheel Logic Integration
     if (showSpinWheel) {
-        // Can spin logic: Check user lastSpinTime. If exists, they cannot spin again.
-        const canSpin = !user?.lastSpinTime; 
+        // Can spin logic: Check user lastSpinTime. Let's say cooldown is 60 seconds.
+        const canSpin = !user?.lastSpinTime || (Date.now() - user.lastSpinTime > 60000); 
         
         return <SpinWheel 
             canSpin={canSpin}
