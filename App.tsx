@@ -3,7 +3,7 @@ import Auth from './components/Auth';
 import { View, User, Question, QuestionType, AdminMessage, AdminCommand } from './types';
 import { LIVE_QUESTIONS, WHO_SAID_IT_QUESTIONS, MOCK_LEADERBOARD, TRIP_CODE_VALID } from './constants';
 import LiveGame from './components/LiveGame';
-import { QRScanner } from './components/SoloZone';
+import SpinWheel from './components/SpinWheel';
 import Leaderboard from './components/Leaderboard';
 import { BottomNav, TopBar } from './components/Navigation';
 import { db, isConfigured, saveManualConfig, clearManualConfig, signIn } from './firebase';
@@ -29,24 +29,27 @@ const App = () => {
     }
   });
 
+  // Spin Wheel State
+  const [showSpinWheel, setShowSpinWheel] = useState(false);
+
   // Connection & Config State
   const [isConnected, setIsConnected] = useState(false);
   const [connectionError, setConnectionError] = useState('');
   const [authStatus, setAuthStatus] = useState<'loading' | 'success' | 'error' | 'none'>('loading');
   const [authErrorMessage, setAuthErrorMessage] = useState('');
-  const [tripCode, setTripCode] = useState(TRIP_CODE_VALID); // Dynamic Trip Code
+  const [tripCode, setTripCode] = useState(TRIP_CODE_VALID);
 
   // Setup Modal State
   const [showSetup, setShowSetup] = useState(!isConfigured);
   const [configInput, setConfigInput] = useState('');
   const [setupError, setSetupError] = useState('');
 
-  // Messaging State (Requests to Admin)
+  // Messaging State
   const [showMsgModal, setShowMsgModal] = useState(false);
   const [msgText, setMsgText] = useState('');
   const [adminMessages, setAdminMessages] = useState<AdminMessage[]>([]);
   
-  // Confirmation Modal State (For Delete Actions)
+  // Confirmation Modal State
   const [confirmModal, setConfirmModal] = useState<{
       isOpen: boolean;
       title: string;
@@ -77,9 +80,8 @@ const App = () => {
     difficulty: 'متوسط'
   });
   
-  const [showDeleteModal, setShowDeleteModal] = useState(false); // For single question delete
+  const [showDeleteModal, setShowDeleteModal] = useState(false); 
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
-  const [showQR, setShowQR] = useState(false);
   const [justSentId, setJustSentId] = useState<string | null>(null);
 
   // Sound & Notification Logic
@@ -87,7 +89,6 @@ const App = () => {
   const prevQuestionTriggerTime = useRef<number | null>(null);
   const prevCommandTime = useRef<number | null>(null);
 
-  // Load user from local storage
   useEffect(() => {
     const savedUser = localStorage.getItem('noah_user_session');
     if (savedUser) {
@@ -98,22 +99,14 @@ const App = () => {
     }
   }, []);
 
-  // Save answered IDs whenever they change
   useEffect(() => {
       localStorage.setItem('noah_answered_ids', JSON.stringify(answeredQuestionIds));
   }, [answeredQuestionIds]);
 
-  // ---------------------------------------------------------
-  // NOTIFICATION HELPERS
-  // ---------------------------------------------------------
+  // Notifications
   const requestNotificationPermission = async () => {
-    if (!("Notification" in window)) {
-        console.log("This browser does not support desktop notification");
-        return;
-    }
-    if (Notification.permission === "default") {
-        await Notification.requestPermission();
-    }
+    if (!("Notification" in window)) return;
+    if (Notification.permission === "default") await Notification.requestPermission();
   };
 
   const sendSystemNotification = (title: string, body: string) => {
@@ -121,30 +114,21 @@ const App = () => {
         try {
             const notification = new Notification(title, {
                 body: body,
-                // Using a generic anchor icon for the ship theme
                 icon: 'https://cdn-icons-png.flaticon.com/512/2913/2913520.png', 
                 vibrate: [200, 100, 200],
-                tag: 'noah-ark-alert', // Replaces older notifications with same tag
-                requireInteraction: true // Keeps notification visible until clicked
+                tag: 'noah-ark-alert',
+                requireInteraction: true
             } as any);
-            notification.onclick = () => {
-                window.focus();
-                notification.close();
-            };
-        } catch (e) {
-            console.error("Notification failed", e);
-        }
+            notification.onclick = () => { window.focus(); notification.close(); };
+        } catch (e) { console.error("Notification failed", e); }
     }
   };
 
-  // ---------------------------------------------------------
-  // FIREBASE CONNECTION & SYNC
-  // ---------------------------------------------------------
+  // Firebase
   useEffect(() => {
     if (!db) return;
 
     const initConnection = async () => {
-        // 1. Authenticate
         const { user: authUser, error } = await signIn();
         if (authUser) {
             setAuthStatus('success');
@@ -156,7 +140,6 @@ const App = () => {
             }
         }
 
-        // 2. Monitor Connection Status
         const connectedRef = ref(db, ".info/connected");
         onValue(connectedRef, (snap) => {
             const connected = snap.val() === true;
@@ -164,22 +147,18 @@ const App = () => {
             if(connected && connectionError.includes('اتصال')) setConnectionError('');
         });
 
-        // 3. Listen for Trip Code (Admin Config)
         const configRef = ref(db, 'config/tripCode');
         onValue(configRef, (snapshot) => {
            const code = snapshot.val();
            if (code) setTripCode(code);
         });
 
-        // 4. Listen for Active Question
         const questionRef = ref(db, 'activeQuestion');
         onValue(questionRef, (snapshot) => {
             const data = snapshot.val();
             setActiveLiveQuestion(data || null);
             setConnectionError('');
             
-            // Notification Logic (Sound/Vibrate) for Questions
-            // Check if ID changed OR triggeredAt changed
             const isNewTrigger = data && (data.id !== prevQuestionId.current || (data.triggeredAt && data.triggeredAt !== prevQuestionTriggerTime.current));
             
             if (isNewTrigger) {
@@ -194,32 +173,23 @@ const App = () => {
                 prevQuestionTriggerTime.current = null;
             }
 
-        }, (error) => {
-             // Error handling...
-             console.error(error);
-        });
+        }, (error) => console.error(error));
 
-        // 5. Listen for Admin Commands (New Feature)
         const commandRef = ref(db, 'activeCommand');
         onValue(commandRef, (snapshot) => {
             const cmd = snapshot.val() as AdminCommand | null;
             setActiveCommand(cmd);
             
             if (cmd && cmd.timestamp !== prevCommandTime.current) {
-                // Play alert sound for command
                 playAlertSound();
                 if (navigator.vibrate) navigator.vibrate([500, 200, 500, 200, 500]);
-                
-                // --- SYSTEM NOTIFICATION TRIGGER ---
                 sendSystemNotification("⚠️ أمر من القائد", cmd.text);
-                
                 prevCommandTime.current = cmd.timestamp;
             } else if (!cmd) {
                 prevCommandTime.current = null;
             }
         });
 
-        // 6. Listen for Leaderboard
         const usersRef = ref(db, 'users');
         onValue(usersRef, (snapshot) => {
             const data = snapshot.val();
@@ -231,7 +201,7 @@ const App = () => {
                     const myData = usersList.find(u => u.id === user.id);
                     if (myData && myData.score !== score) {
                         setScore(myData.score);
-                        const updatedLocal = { ...user, score: myData.score };
+                        const updatedLocal = { ...user, score: myData.score, lastSpinTime: myData.lastSpinTime }; // Keep lastSpinTime synced
                         localStorage.setItem('noah_user_session', JSON.stringify(updatedLocal));
                         setUser(updatedLocal);
                     }
@@ -241,15 +211,11 @@ const App = () => {
             }
         });
 
-        // 7. Listen for Admin Messages
         const messagesRef = ref(db, 'messages');
         onValue(messagesRef, (snapshot) => {
            const msgs = snapshot.val();
            if (msgs) {
-               const list = Object.entries(msgs).map(([key, val]: [string, any]) => ({
-                   id: key,
-                   ...val
-               }));
+               const list = Object.entries(msgs).map(([key, val]: [string, any]) => ({ id: key, ...val }));
                list.sort((a, b) => b.timestamp - a.timestamp);
                setAdminMessages(list);
            } else {
@@ -262,7 +228,6 @@ const App = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
 
-  // Persist Questions (Admin Local Only)
   useEffect(() => {
     localStorage.setItem('noah_questions_v1', JSON.stringify(questionsList));
   }, [questionsList]);
@@ -297,24 +262,18 @@ const App = () => {
         const gain = ctx.createGain();
         osc.connect(gain);
         gain.connect(ctx.destination);
-        
-        // Siren-like sound
         osc.type = 'sawtooth';
         osc.frequency.setValueAtTime(400, ctx.currentTime);
         osc.frequency.linearRampToValueAtTime(600, ctx.currentTime + 0.3);
         osc.frequency.linearRampToValueAtTime(400, ctx.currentTime + 0.6);
         osc.frequency.linearRampToValueAtTime(600, ctx.currentTime + 0.9);
-        
         gain.gain.setValueAtTime(0.3, ctx.currentTime);
         gain.gain.linearRampToValueAtTime(0.3, ctx.currentTime + 0.9);
         gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 1.2);
-        
         osc.start();
         osc.stop(ctx.currentTime + 1.2);
     } catch (e) { console.error(e); }
   };
-
-  // ------------------ Handlers ------------------
 
   const handleConfigSubmit = (e: React.FormEvent) => {
       e.preventDefault();
@@ -338,8 +297,6 @@ const App = () => {
     localStorage.setItem('noah_user_session', JSON.stringify(u));
     setView(View.HOME);
     if (db) set(ref(db, 'users/' + u.id), u).catch(console.error);
-    
-    // Request Permission on Login
     requestNotificationPermission();
   };
 
@@ -350,22 +307,46 @@ const App = () => {
   };
 
   const handleScoreUpdate = (points: number) => {
+    // Ensure points are positive (NO DEDUCTIONS)
+    if (points <= 0) return;
+
     const newScore = score + points;
     setScore(newScore);
-    if (activeLiveQuestion) {
-        // Only mark ID as answered, but unique trigger logic is handled in LiveGame
+    
+    // If it's a question response
+    if (activeLiveQuestion && view === View.LIVE_QUIZ) {
         setAnsweredQuestionIds(prev => [...prev, activeLiveQuestion.id]);
     }
+
     if (user) {
         const updatedUser = { ...user, score: newScore };
+        // If updating from Spin Wheel, might want to update lastSpinTime, but I'll do that in handleSpinWin
         setUser(updatedUser);
         localStorage.setItem('noah_user_session', JSON.stringify(updatedUser));
         if (db) update(ref(db, 'users/' + user.id), { score: newScore });
         else setLeaderboardData(prev => prev.map(u => u.id === user.id ? updatedUser : u));
     }
-    setTimeout(() => {
-        setView(View.HOME);
-    }, 2500);
+    
+    // If we are in Live Quiz, go home after answer
+    if (view === View.LIVE_QUIZ) {
+        setTimeout(() => {
+            setView(View.HOME);
+        }, 2500);
+    }
+  };
+
+  const handleSpinWin = (points: number) => {
+      // Logic for spin win specifically
+      if (points > 0) {
+          handleScoreUpdate(points);
+      }
+      // Update last spin time
+      if (user) {
+          const now = Date.now();
+          const updatedUser = { ...user, lastSpinTime: now };
+          setUser(updatedUser);
+          if (db) update(ref(db, 'users/' + user.id), { lastSpinTime: now });
+      }
   };
 
   const playFeedbackSound = (type: 'correct' | 'wrong') => {
@@ -412,15 +393,12 @@ const App = () => {
       }
   };
 
-  // ADMIN Functions
   const triggerLiveQuestion = (qId: string) => {
       let q = questionsList.find(x => x.id === qId);
       if (!q) q = WHO_SAID_IT_QUESTIONS.find(x => x.id === qId);
       if (q) {
           const cleanQ = JSON.parse(JSON.stringify(q));
-          // ADD TIMESTAMP TO FORCE UPDATE ON CLIENT
           cleanQ.triggeredAt = Date.now();
-
           if (db) set(ref(db, 'activeQuestion'), cleanQ).catch(alert);
           else setActiveLiveQuestion(cleanQ);
           setJustSentId(qId);
@@ -441,13 +419,12 @@ const App = () => {
       }
   };
 
-  // --- Secure Delete Handlers using Modal ---
   const handleClearMessagesClick = () => {
       if (!db) return alert("خطأ: لا يوجد اتصال بقاعدة البيانات");
       setConfirmModal({
           isOpen: true,
           title: "مسح كل الرسائل",
-          message: "هل أنت متأكد تماماً من حذف جميع رسائل المتسابقين؟ لا يمكن التراجع عن هذا الإجراء.",
+          message: "هل أنت متأكد تماماً من حذف جميع رسائل المتسابقين؟",
           onConfirm: async () => {
               setIsLoadingAction(true);
               try {
@@ -455,12 +432,8 @@ const App = () => {
                   setConfirmModal(prev => ({...prev, isOpen: false}));
                   alert("تم مسح الرسائل بنجاح ✅");
               } catch (error: any) {
-                  console.error("Delete Error", error);
-                  if (error.code === 'PERMISSION_DENIED') alert("خطأ: ليس لديك صلاحية الحذف. راجع إعدادات Firebase Rules.");
-                  else alert("حدث خطأ أثناء المسح: " + error.message);
-              } finally {
-                  setIsLoadingAction(false);
-              }
+                  alert("حدث خطأ أثناء المسح: " + error.message);
+              } finally { setIsLoadingAction(false); }
           }
       });
   };
@@ -476,22 +449,13 @@ const App = () => {
               try {
                   await remove(ref(db, 'users'));
                   await set(ref(db, 'activeQuestion'), null);
-                  await set(ref(db, 'activeCommand'), null); // Also reset command
-                  
-                  // Also clear answered question IDs locally for admin
+                  await set(ref(db, 'activeCommand'), null); 
                   localStorage.removeItem('noah_answered_ids');
                   setAnsweredQuestionIds([]);
-
                   setLeaderboardData([]);
                   setConfirmModal(prev => ({...prev, isOpen: false}));
                   alert("تم تصفير الترتيب وحذف المستخدمين بنجاح ✅");
-              } catch (error: any) {
-                  console.error("Reset Error", error);
-                  if (error.code === 'PERMISSION_DENIED') alert("خطأ: ليس لديك صلاحية الحذف. راجع إعدادات Firebase Rules.");
-                  else alert("فشل الحذف: " + error.message);
-              } finally {
-                  setIsLoadingAction(false);
-              }
+              } catch (error: any) { alert("فشل الحذف: " + error.message); } finally { setIsLoadingAction(false); }
           }
       });
   };
@@ -499,29 +463,15 @@ const App = () => {
   const handleSendCommand = (e: React.FormEvent) => {
       e.preventDefault();
       if (!commandInput.trim() || !db) return;
-      
-      const newCommand: AdminCommand = {
-          text: commandInput,
-          timestamp: Date.now(),
-          type: 'alert' // or judgment, could add a toggle later
-      };
-
-      set(ref(db, 'activeCommand'), newCommand)
-         .then(() => {
-             alert('تم إرسال الأمر/الحكم بنجاح 🔔');
-             setCommandInput('');
-         })
-         .catch(err => alert('فشل الإرسال: ' + err.message));
+      const newCommand: AdminCommand = { text: commandInput, timestamp: Date.now(), type: 'alert' };
+      set(ref(db, 'activeCommand'), newCommand).then(() => { alert('تم الإرسال 🔔'); setCommandInput(''); }).catch(err => alert('فشل الإرسال'));
   };
 
   const handleClearCommand = () => {
       if (!db) return;
-      set(ref(db, 'activeCommand'), null)
-        .then(() => alert('تم إخفاء الأمر 🔕'))
-        .catch(err => alert('خطأ: ' + err.message));
+      set(ref(db, 'activeCommand'), null).then(() => alert('تم الإخفاء 🔕')).catch(err => alert('خطأ: ' + err.message));
   };
 
-  // CRUD
   const resetForm = () => { setQuestionForm({ id: '', text: '', options: ['', '', '', ''], correctIndex: 0, type: QuestionType.TEXT, points: 100, difficulty: 'متوسط' }); setIsEditing(false); };
   const handleEditClick = (q: Question) => { setQuestionForm(q); setIsEditing(true); window.scrollTo({ top: 0, behavior: 'smooth' }); };
   const handleDeleteClick = (id: string) => { setDeleteTargetId(id); setShowDeleteModal(true); };
@@ -534,6 +484,7 @@ const App = () => {
   if (showSetup) {
       return (
         <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-4">
+            {/* Setup Config Form */}
             <div className="bg-white p-6 rounded-2xl shadow-xl w-full max-w-md border border-slate-200">
                 <div className="text-center mb-6"><div className="text-4xl mb-2">⚙️</div><h2 className="text-xl font-bold">إعداد قاعدة البيانات</h2></div>
                 <form onSubmit={handleConfigSubmit} className="space-y-4">
@@ -548,18 +499,20 @@ const App = () => {
   }
 
   const renderContent = () => {
-    if (showQR) return <QRScanner onScan={(data) => { alert(`تم مسح الكود: ${data} - حصلت على 50 نقطة!`); handleScoreUpdate(50); setShowQR(false); }} onClose={() => setShowQR(false)} />;
+    // Spin Wheel Logic Integration
+    if (showSpinWheel) {
+        // Can spin logic: Check user lastSpinTime. If exists, they cannot spin again.
+        const canSpin = !user?.lastSpinTime; 
+        
+        return <SpinWheel 
+            canSpin={canSpin}
+            onWin={handleSpinWin} 
+            onClose={() => setShowSpinWheel(false)} 
+        />;
+    }
 
     switch (view) {
       case View.HOME:
-        // IMPORTANT: We now also rely on triggeredAt to decide if it's "New" in terms of notification,
-        // but for "Is Answered" logic, we still look at the ID.
-        // If the admin re-sends the same ID, the user is technically allowed to answer again if we cleared the local state?
-        // NO, if ID is same, we keep it locked usually.
-        // BUT if user is saying "it appears only for admin", it means they think they should answer but can't.
-        // Let's assume if Admin re-triggers, they WANT to allow answering again?
-        // No, typically ID persists. 
-        // For now, let's assume the user hasn't answered this specific ID.
         const isCurrentQuestionAnswered = activeLiveQuestion && answeredQuestionIds.includes(activeLiveQuestion.id);
 
         return (
@@ -573,20 +526,15 @@ const App = () => {
              {connectionError && <div className="bg-red-500 text-white p-3 rounded-xl text-sm shadow-md animate-pulse font-bold">{connectionError}</div>}
              {!isConnected && !connectionError && isConfigured && <div className="bg-yellow-500 text-white p-3 rounded-xl text-sm shadow-md">📡 جارِ الاتصال بالخادم...</div>}
 
-             {/* Active Command Banner (Replacing Overlay) */}
              {activeCommand && (
                 <div className="bg-yellow-400 text-slate-900 p-4 rounded-xl shadow-lg flex items-center justify-between border-2 border-yellow-500 animate-pulse">
                      <div className="flex items-center gap-3">
                         <span className="text-3xl">📣</span>
-                        <div className="flex flex-col">
-                            <span className="font-black text-lg">أمر القائد</span>
-                            <span className="font-bold text-md">{activeCommand.text}</span>
-                        </div>
+                        <div className="flex flex-col"><span className="font-black text-lg">أمر القائد</span><span className="font-bold text-md">{activeCommand.text}</span></div>
                      </div>
                 </div>
              )}
 
-             {/* Live Question Banner */}
              {activeLiveQuestion && !isCurrentQuestionAnswered && (
                 <div onClick={() => setView(View.LIVE_QUIZ)} className="bg-red-500 text-white p-4 rounded-xl shadow-lg flex items-center justify-between animate-pulse cursor-pointer border-2 border-red-400">
                     <div className="flex items-center gap-2"><span className="text-2xl">⚡</span><div className="flex flex-col"><span className="font-bold">سؤال مباشر نشط!</span><span className="text-xs text-red-100">اضغط للدخول الآن</span></div></div>
@@ -594,15 +542,11 @@ const App = () => {
                 </div>
              )}
 
-             {/* Answered State Banner */}
              {activeLiveQuestion && isCurrentQuestionAnswered && (
                 <div className="bg-slate-200 text-slate-500 p-4 rounded-xl shadow-inner flex items-center justify-between border-2 border-slate-300">
                     <div className="flex items-center gap-2">
                         <span className="text-2xl">🔒</span>
-                        <div className="flex flex-col">
-                            <span className="font-bold">تمت الإجابة</span>
-                            <span className="text-xs">انتظر السؤال التالي من القائد...</span>
-                        </div>
+                        <div className="flex flex-col"><span className="font-bold">تمت الإجابة</span><span className="text-xs">انتظر السؤال التالي من القائد...</span></div>
                     </div>
                 </div>
              )}
@@ -618,10 +562,13 @@ const App = () => {
                     <span className="text-5xl mb-2">⚡</span>
                     <span className="font-bold text-slate-700">المسابقة</span>
                 </button>
-                <button onClick={() => setShowQR(true)} className="bg-white p-6 rounded-xl shadow-sm border border-slate-100 flex flex-col items-center gap-2 hover:bg-slate-50 transition-all active:scale-95"><span className="text-5xl mb-2">📸</span><span className="font-bold text-slate-700">صائد الكنوز</span></button>
+                {/* Replaced QR Hunter with Spin Wheel */}
+                <button onClick={() => setShowSpinWheel(true)} className="bg-white p-6 rounded-xl shadow-sm border border-slate-100 flex flex-col items-center gap-2 hover:bg-slate-50 transition-all active:scale-95">
+                    <span className="text-5xl mb-2">🎡</span>
+                    <span className="font-bold text-slate-700">عجلة الحظ</span>
+                </button>
              </div>
              
-             {/* Messaging Button */}
              <button onClick={() => setShowMsgModal(true)} className="bg-white p-4 rounded-xl shadow-sm border border-slate-100 flex items-center justify-between gap-2 hover:bg-slate-50 mt-2">
                  <div className="flex items-center gap-3"><span className="text-3xl">📨</span><span className="font-bold text-slate-700">إرسال طلب للقائد</span></div>
                  <span className="text-slate-400">←</span>
@@ -646,31 +593,15 @@ const App = () => {
                      <div className="flex gap-2">
                          <input type="text" defaultValue={tripCode} onBlur={(e) => handleUpdateTripCode(e.target.value)} className="bg-slate-700 border-none rounded-lg px-3 py-2 w-full text-center tracking-widest font-mono text-lg font-bold" />
                      </div>
-                     <p className="text-[10px] text-slate-400 mt-2">قم بتغيير الكود واضغط خارج الحقل للحفظ.</p>
                 </div>
                 
-                {/* Admin Command Section */}
                 <div className="bg-yellow-50 border-2 border-yellow-400 p-4 rounded-xl shadow-md mb-6">
-                    <h3 className="font-bold text-lg text-slate-800 mb-2 flex items-center gap-2">
-                        <span>📢</span> إرسال حكم / تنبيه
-                    </h3>
+                    <h3 className="font-bold text-lg text-slate-800 mb-2 flex items-center gap-2"><span>📢</span> إرسال حكم / تنبيه</h3>
                     <form onSubmit={handleSendCommand} className="flex flex-col gap-2">
-                        <input 
-                            type="text" 
-                            value={commandInput} 
-                            onChange={(e) => setCommandInput(e.target.value)} 
-                            placeholder="اكتب الأمر أو الحكم هنا..." 
-                            className="w-full p-3 rounded-xl border border-yellow-300 focus:outline-none focus:ring-2 focus:ring-yellow-500"
-                        />
+                        <input type="text" value={commandInput} onChange={(e) => setCommandInput(e.target.value)} placeholder="اكتب الأمر أو الحكم هنا..." className="w-full p-3 rounded-xl border border-yellow-300 focus:outline-none focus:ring-2 focus:ring-yellow-500"/>
                         <div className="flex gap-2">
-                            <button type="submit" className="flex-1 bg-yellow-500 hover:bg-yellow-600 text-white font-bold py-2 rounded-xl transition-colors">
-                                إرسال 🔔
-                            </button>
-                            {activeCommand && (
-                                <button type="button" onClick={handleClearCommand} className="px-4 bg-slate-200 text-slate-600 font-bold rounded-xl">
-                                    إخفاء 🔕
-                                </button>
-                            )}
+                            <button type="submit" className="flex-1 bg-yellow-500 hover:bg-yellow-600 text-white font-bold py-2 rounded-xl transition-colors">إرسال 🔔</button>
+                            {activeCommand && <button type="button" onClick={handleClearCommand} className="px-4 bg-slate-200 text-slate-600 font-bold rounded-xl">إخفاء 🔕</button>}
                         </div>
                     </form>
                     {activeCommand && <p className="text-[10px] text-green-600 mt-2 font-bold">✅ يوجد أمر نشط حالياً للمستخدمين: {activeCommand.text}</p>}
@@ -703,30 +634,12 @@ const App = () => {
                     <button onClick={() => setShowSetup(true)} className="text-[10px] text-blue-500 underline w-full text-center">تغيير إعدادات الرابط</button>
                 </div>
                 
-                {/* Confirmation Modal */}
                 {confirmModal.isOpen && (
                     <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
                         <div className="bg-white rounded-2xl p-6 w-full max-w-sm shadow-2xl">
                             <h3 className="text-lg font-bold text-slate-800 mb-2">{confirmModal.title}</h3>
                             <p className="text-slate-600 mb-6">{confirmModal.message}</p>
-                            <div className="flex gap-3">
-                                <button 
-                                    onClick={() => setConfirmModal({ ...confirmModal, isOpen: false })} 
-                                    className="flex-1 py-3 rounded-xl bg-slate-100 text-slate-700 font-bold"
-                                    disabled={isLoadingAction}
-                                >
-                                    إلغاء
-                                </button>
-                                <button 
-                                    onClick={() => {
-                                        confirmModal.onConfirm();
-                                    }} 
-                                    className="flex-1 py-3 rounded-xl bg-red-500 text-white font-bold flex justify-center items-center"
-                                    disabled={isLoadingAction}
-                                >
-                                    {isLoadingAction ? <span className="animate-spin h-5 w-5 border-2 border-white border-t-transparent rounded-full"></span> : "تأكيد"}
-                                </button>
-                            </div>
+                            <div className="flex gap-3"><button onClick={() => setConfirmModal({ ...confirmModal, isOpen: false })} className="flex-1 py-3 rounded-xl bg-slate-100 text-slate-700 font-bold" disabled={isLoadingAction}>إلغاء</button><button onClick={() => confirmModal.onConfirm()} className="flex-1 py-3 rounded-xl bg-red-500 text-white font-bold flex justify-center items-center" disabled={isLoadingAction}>{isLoadingAction ? "..." : "تأكيد"}</button></div>
                         </div>
                     </div>
                 )}
@@ -747,43 +660,21 @@ const App = () => {
                     <form onSubmit={handleSaveQuestion} className="space-y-3">
                         <div className="mb-3">
                             <label className="block text-xs font-bold text-slate-500 mb-1">نوع السؤال</label>
-                            <select 
-                                value={questionForm.type} 
-                                onChange={e => setQuestionForm({...questionForm, type: e.target.value as QuestionType})} 
-                                className="w-full border p-2 rounded-lg bg-white focus:ring-2 focus:ring-primary outline-none"
-                            >
+                            <select value={questionForm.type} onChange={e => setQuestionForm({...questionForm, type: e.target.value as QuestionType})} className="w-full border p-2 rounded-lg bg-white focus:ring-2 focus:ring-primary outline-none">
                                 <option value={QuestionType.TEXT}>اختيارات (نص عادي)</option>
                                 <option value={QuestionType.EMOJI}>اختيارات (لغز إيموجي)</option>
                                 <option value={QuestionType.INPUT}>كتابة (إدخال يدوي)</option>
                             </select>
                         </div>
-
-                        <input 
-                            type="text" 
-                            required 
-                            value={questionForm.text} 
-                            onChange={e => setQuestionForm({...questionForm, text: e.target.value})} 
-                            className="w-full border p-2 rounded-lg focus:ring-2 focus:ring-primary outline-none" 
-                            placeholder={questionForm.type === QuestionType.EMOJI ? "ضع الإيموجي هنا (مثال: 🦁👑)" : "نص السؤال..."} 
-                        />
-                        
+                        <input type="text" required value={questionForm.text} onChange={e => setQuestionForm({...questionForm, text: e.target.value})} className="w-full border p-2 rounded-lg focus:ring-2 focus:ring-primary outline-none" placeholder={questionForm.type === QuestionType.EMOJI ? "ضع الإيموجي هنا (مثال: 🦁👑)" : "نص السؤال..."} />
                         <div className="flex gap-2">
                             <input type="number" required value={questionForm.points} onChange={e => setQuestionForm({...questionForm, points: parseInt(e.target.value)})} className="w-1/2 border p-2 rounded-lg" placeholder="النقاط" />
                             <select value={questionForm.difficulty} onChange={e => setQuestionForm({...questionForm, difficulty: e.target.value})} className="w-1/2 border p-2 rounded-lg bg-white"><option value="سهل">سهل</option><option value="متوسط">متوسط</option><option value="صعب">صعب</option></select>
                         </div>
-                        
-                        {/* Dynamic Options Rendering */}
                         {questionForm.type === QuestionType.INPUT ? (
                              <div className="p-3 bg-blue-50 rounded-xl border border-blue-200">
                                  <label className="block text-xs font-bold text-blue-600 mb-1">الإجابة الصحيحة (كلمة واحدة أو جملة قصيرة)</label>
-                                 <input 
-                                    type="text" 
-                                    required 
-                                    value={questionForm.options[0] || ''} 
-                                    onChange={e => handleOptionChange(0, e.target.value)} 
-                                    className="w-full border p-2 rounded-lg text-center font-bold text-blue-900" 
-                                    placeholder="اكتب الإجابة هنا..." 
-                                />
+                                 <input type="text" required value={questionForm.options[0] || ''} onChange={e => handleOptionChange(0, e.target.value)} className="w-full border p-2 rounded-lg text-center font-bold text-blue-900" placeholder="اكتب الإجابة هنا..." />
                                 <p className="text-[10px] text-blue-400 mt-1">سيقوم التطبيق بمقارنة إجابة المتسابق مع هذا النص تلقائياً.</p>
                              </div>
                         ) : (
@@ -796,7 +687,6 @@ const App = () => {
                                 ))}
                             </div>
                         )}
-
                         <div className="flex gap-2 pt-2"><button type="submit" className="flex-1 bg-primary text-white py-2 rounded-lg font-bold">{isEditing ? 'حفظ' : 'إضافة'}</button>{isEditing && <button type="button" onClick={resetForm} className="bg-slate-200 px-4 rounded-lg">إلغاء</button>}</div>
                     </form>
                 </div>
@@ -804,11 +694,8 @@ const App = () => {
                 <div className="space-y-3 mb-8">
                     {questionsList.map(q => {
                         let answerDisplay = "";
-                        if (q.type === QuestionType.INPUT) {
-                            answerDisplay = q.options[0];
-                        } else {
-                            answerDisplay = q.options[q.correctIndex];
-                        }
+                        if (q.type === QuestionType.INPUT) answerDisplay = q.options[0];
+                        else answerDisplay = q.options[q.correctIndex];
 
                         return (
                             <div key={q.id} className="bg-white p-4 rounded-xl shadow-sm border border-slate-100 flex flex-col gap-3">
@@ -836,12 +723,7 @@ const App = () => {
                     <p className="text-xs text-slate-400 mb-2">عدد المتصلين: {leaderboardData.length}</p>
                     <div className="flex items-center gap-3 mt-2">
                         {isConfigured && <button onClick={clearManualConfig} className="text-[10px] text-slate-400 underline">Reset Config</button>}
-                        <button 
-                            onClick={handleResetLeaderboardClick} 
-                            className="text-xs bg-red-100 text-red-600 px-3 py-2 rounded-lg font-bold border border-red-200 hover:bg-red-200 transition-colors"
-                        >
-                            🗑️ تصفير الترتيب (حذف الكل)
-                        </button>
+                        <button onClick={handleResetLeaderboardClick} className="text-xs bg-red-100 text-red-600 px-3 py-2 rounded-lg font-bold border border-red-200 hover:bg-red-200 transition-colors">🗑️ تصفير الترتيب (حذف الكل)</button>
                     </div>
                 </div>
             </div>
@@ -858,21 +740,12 @@ const App = () => {
       <div className="flex-grow overflow-y-auto no-scrollbar">{renderContent()}</div>
       <BottomNav currentView={view} user={user} onChangeView={setView} onLogout={handleLogout} />
       
-      {/* User Message Modal */}
       {showMsgModal && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
               <div className="bg-white rounded-2xl p-6 w-full max-w-sm shadow-2xl animate-bounce-in">
-                  <div className="flex justify-between items-center mb-4">
-                      <h3 className="text-lg font-bold text-slate-800">✉️ رسالة للقائد</h3>
-                      <button onClick={() => setShowMsgModal(false)} className="text-slate-400 text-xl">×</button>
-                  </div>
+                  <div className="flex justify-between items-center mb-4"><h3 className="text-lg font-bold text-slate-800">✉️ رسالة للقائد</h3><button onClick={() => setShowMsgModal(false)} className="text-slate-400 text-xl">×</button></div>
                   <form onSubmit={handleSendMessage}>
-                      <textarea 
-                          value={msgText}
-                          onChange={e => setMsgText(e.target.value)}
-                          className="w-full h-32 border border-slate-300 rounded-xl p-3 focus:ring-2 focus:ring-primary outline-none mb-4 resize-none"
-                          placeholder="اكتب طلبك، ملاحظتك، أو اقتراحك هنا..."
-                      ></textarea>
+                      <textarea value={msgText} onChange={e => setMsgText(e.target.value)} className="w-full h-32 border border-slate-300 rounded-xl p-3 focus:ring-2 focus:ring-primary outline-none mb-4 resize-none" placeholder="اكتب طلبك، ملاحظتك، أو اقتراحك هنا..."></textarea>
                       <button type="submit" className="w-full bg-secondary hover:bg-yellow-500 text-slate-900 font-bold py-3 rounded-xl transition-all">إرسال</button>
                   </form>
               </div>

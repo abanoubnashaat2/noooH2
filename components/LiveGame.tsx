@@ -56,22 +56,20 @@ const LiveGame: React.FC<LiveGameProps> = ({ question, onAnswer, isAdmin, onPlay
     };
   }, [question?.id, question?.triggeredAt]); // Depend on triggeredAt to force reset
 
-  // Logic to show "Locked" screen:
-  // We only lock if it's already answered AND we haven't just reset the local hasAnswered state.
-  // BUT the parent passes 'isAlreadyAnswered' based on ID. 
-  // If the admin re-triggers the same ID, isAlreadyAnswered will still be true in parent.
-  // We need to ignore isAlreadyAnswered if the trigger is fresh? 
-  // For now, let's assume unique IDs are better, but if we must rely on triggeredAt...
-  // Actually, if App.tsx doesn't clear the answered ID from local storage, this will stay locked.
-  // HOWEVER, the user issue is "The input box doesn't appear". If it was locked, they would see the Lock Screen.
-  // If they don't see the Lock Screen, but see NO input box, it means it fell through to the wrong render block.
-  
   const isLocked = isAlreadyAnswered && !hasAnswered;
 
   const calculatePoints = (isCorrect: boolean) => {
-      if (!isCorrect) return 0;
+      if (!isCorrect) return 0; // Never deduct points, return 0 if wrong
+      
+      // For Input questions, we do NOT punish for time, as typing takes effort.
+      if (question?.type === QuestionType.INPUT || question?.type === 'INPUT') {
+          return 50; // Fixed high points for correct written answer
+      }
+
+      // For multiple choice, speed matters
       const timeTaken = 30 - timeLeft;
-      return Math.max(10, 100 - (timeTaken * 2)); // Adjusted scoring for longer time
+      const points = 100 - (timeTaken * 2); 
+      return Math.max(10, points); // Minimum 10 points
   };
 
   const handleOptionClick = (index: number) => {
@@ -83,7 +81,6 @@ const LiveGame: React.FC<LiveGameProps> = ({ question, onAnswer, isAdmin, onPlay
 
     const isCorrect = index === question.correctIndex;
 
-    // Play Sound Automatically for options
     if (onPlaySound) {
         onPlaySound(isCorrect ? 'correct' : 'wrong');
     }
@@ -106,7 +103,7 @@ const LiveGame: React.FC<LiveGameProps> = ({ question, onAnswer, isAdmin, onPlay
 
       const correctAnswer = question.options[0];
       
-      // Normalize text for flexible matching
+      // Normalize text for flexible matching (ignore hamzas, tah marbuta, punctuation)
       const normalize = (str: string) => str.trim().toLowerCase()
         .replace(/[أإآ]/g, 'ا')
         .replace(/ة/g, 'ه')
@@ -139,7 +136,6 @@ const LiveGame: React.FC<LiveGameProps> = ({ question, onAnswer, isAdmin, onPlay
   }
 
   // View 1: INPUT - Success (Sent)
-  // Check against enum string or direct string to be safe
   const isInputType = question?.type === QuestionType.INPUT || question?.type === 'INPUT';
 
   if (isInputType && hasAnswered) {
@@ -149,7 +145,7 @@ const LiveGame: React.FC<LiveGameProps> = ({ question, onAnswer, isAdmin, onPlay
                 <span className="text-5xl">📨</span>
              </div>
              <h2 className="text-2xl font-bold text-slate-800 mb-2">تم الإرسال!</h2>
-             <p className="text-slate-500">تم تسجيل إجابتك بنجاح.</p>
+             <p className="text-slate-500">تم تسجيل إجابتك.</p>
              <p className="text-xs text-slate-400 mt-4">انتظر النتائج...</p>
         </div>
       );

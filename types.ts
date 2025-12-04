@@ -3,7 +3,7 @@ export enum View {
   AUTH = 'AUTH',
   HOME = 'HOME',
   LIVE_QUIZ = 'LIVE_QUIZ',
-  QR_HUNT = 'QR_HUNT',
+  SPIN_WHEEL = 'SPIN_WHEEL', // Changed from QR_HUNT
   LEADERBOARD = 'LEADERBOARD',
   ADMIN = 'ADMIN'
 }
@@ -16,6 +16,7 @@ export interface User {
   score: number;
   isAdmin: boolean;
   tripCode: string;
+  lastSpinTime?: number; // Track last spin to prevent spamming
 }
 
 export enum QuestionType {
