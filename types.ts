@@ -36,6 +36,7 @@ export interface Question {
   points: number;
   difficulty?: string; // Added field
   context?: string; // Added field for "Context/To Whom"
+  triggeredAt?: number; // Added field to force refresh on client
 }
 
 export interface LeaderboardEntry {

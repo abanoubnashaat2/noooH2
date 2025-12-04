@@ -22,7 +22,7 @@ const LiveGame: React.FC<LiveGameProps> = ({ question, onAnswer, isAdmin, onPlay
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
-    // Reset state when new question arrives
+    // Reset state when new question arrives or is re-triggered
     if (question) {
       setTimeLeft(30); // Generous time for typing
       setSelectedOption(null);
@@ -30,15 +30,16 @@ const LiveGame: React.FC<LiveGameProps> = ({ question, onAnswer, isAdmin, onPlay
       setHasAnswered(false);
       setShowResult(false);
 
+      if (timerRef.current) clearInterval(timerRef.current);
+
       timerRef.current = setInterval(() => {
         setTimeLeft((prev) => {
           if (prev <= 1) {
             if (timerRef.current) clearInterval(timerRef.current);
             setShowResult(true);
             
-            // FIX: If Input type times out, auto-submit 0 points so user isn't stuck
-            // We use a timeout to allow the UI to update to "Time's Up" first
-            if (question.type === QuestionType.INPUT) {
+            // Auto-submit 0 points on timeout so user isn't stuck
+            if (question.type === QuestionType.INPUT || question.type === 'INPUT') {
                 onAnswer(0);
             }
             return 0;
@@ -47,16 +48,24 @@ const LiveGame: React.FC<LiveGameProps> = ({ question, onAnswer, isAdmin, onPlay
         });
       }, 1000);
     } else {
-        // Clear timer if no question
         if (timerRef.current) clearInterval(timerRef.current);
     }
 
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
-  }, [question?.id]);
+  }, [question?.id, question?.triggeredAt]); // Depend on triggeredAt to force reset
 
   // Logic to show "Locked" screen:
+  // We only lock if it's already answered AND we haven't just reset the local hasAnswered state.
+  // BUT the parent passes 'isAlreadyAnswered' based on ID. 
+  // If the admin re-triggers the same ID, isAlreadyAnswered will still be true in parent.
+  // We need to ignore isAlreadyAnswered if the trigger is fresh? 
+  // For now, let's assume unique IDs are better, but if we must rely on triggeredAt...
+  // Actually, if App.tsx doesn't clear the answered ID from local storage, this will stay locked.
+  // HOWEVER, the user issue is "The input box doesn't appear". If it was locked, they would see the Lock Screen.
+  // If they don't see the Lock Screen, but see NO input box, it means it fell through to the wrong render block.
+  
   const isLocked = isAlreadyAnswered && !hasAnswered;
 
   const calculatePoints = (isCorrect: boolean) => {
@@ -103,16 +112,12 @@ const LiveGame: React.FC<LiveGameProps> = ({ question, onAnswer, isAdmin, onPlay
         .replace(/ة/g, 'ه')
         .replace(/ى/g, 'ي')
         .replace(/[.,/#!$%^&*;:{}=\-_`~()]/g,"")
-        .replace(/\s+/g, ' '); // Collapse multiple spaces
+        .replace(/\s+/g, ' '); 
 
       const isCorrect = normalize(textInput) === normalize(correctAnswer);
 
-      // Sound feedback (optional, keeps result hidden visually)
       if (onPlaySound && isCorrect) {
           onPlaySound('correct');
-      } else if (onPlaySound) {
-          // Maybe play a neutral sound or nothing to not discourage?
-          // User asked for points if correct.
       }
 
       const points = calculatePoints(isCorrect);
@@ -134,7 +139,10 @@ const LiveGame: React.FC<LiveGameProps> = ({ question, onAnswer, isAdmin, onPlay
   }
 
   // View 1: INPUT - Success (Sent)
-  if (question?.type === QuestionType.INPUT && hasAnswered) {
+  // Check against enum string or direct string to be safe
+  const isInputType = question?.type === QuestionType.INPUT || question?.type === 'INPUT';
+
+  if (isInputType && hasAnswered) {
       return (
         <div className="flex flex-col items-center justify-center h-full p-6 text-center animate-zoom-in">
              <div className="w-24 h-24 bg-blue-100 text-blue-500 rounded-full flex items-center justify-center mb-6 animate-bounce shadow-lg">
@@ -148,7 +156,7 @@ const LiveGame: React.FC<LiveGameProps> = ({ question, onAnswer, isAdmin, onPlay
   }
 
   // View 2: INPUT - Timeout
-  if (question?.type === QuestionType.INPUT && timeLeft === 0 && !hasAnswered) {
+  if (isInputType && timeLeft === 0 && !hasAnswered) {
       return (
         <div className="flex flex-col items-center justify-center h-full p-6 text-center animate-pulse">
              <div className="text-6xl mb-4 text-slate-400">⏰</div>
@@ -183,25 +191,25 @@ const LiveGame: React.FC<LiveGameProps> = ({ question, onAnswer, isAdmin, onPlay
       </div>
 
       <div className="bg-white rounded-2xl shadow-lg p-6 mb-6 flex-grow flex flex-col justify-center border-t-4 border-primary">
-        {question.type === QuestionType.EMOJI ? (
+        {question.type === QuestionType.EMOJI || question.type === 'EMOJI' ? (
             <h2 className="text-6xl text-center mb-2 tracking-widest leading-normal animate-pulse">{question.text}</h2>
         ) : (
             <h2 className="text-xl font-bold text-center text-slate-800 mb-2 leading-relaxed">{question.text}</h2>
         )}
         
         <div className="text-center text-sm text-slate-400 mt-2">
-            {question.type === QuestionType.INPUT ? '✍️ اكتب الإجابة وأرسلها' : question.type === QuestionType.EMOJI ? 'خمّن الحل' : 'سؤال سرعة 🔥'}
+            {isInputType ? '✍️ اكتب الإجابة وأرسلها' : question.type === QuestionType.EMOJI ? 'خمّن الحل' : 'سؤال سرعة 🔥'}
         </div>
       </div>
 
-      {question.type === QuestionType.INPUT ? (
-          <form onSubmit={handleInputSubmit} className="flex flex-col gap-3 pb-safe">
+      {isInputType ? (
+          <form onSubmit={handleInputSubmit} className="flex flex-col gap-3 pb-24">
               <input 
                  type="text" 
                  disabled={hasAnswered || timeLeft === 0}
                  value={textInput} 
                  onChange={e => setTextInput(e.target.value)}
-                 className="w-full p-4 text-center text-xl font-bold border-2 border-slate-300 rounded-xl focus:border-primary focus:ring-4 focus:ring-blue-100 outline-none transition-all placeholder:font-normal"
+                 className="w-full p-4 text-center text-xl font-bold border-2 border-slate-300 rounded-xl focus:border-primary focus:ring-4 focus:ring-blue-100 outline-none transition-all placeholder:font-normal text-slate-900 bg-white"
                  placeholder="اكتب الإجابة هنا..."
                  autoFocus
                  autoComplete="off"
@@ -246,7 +254,7 @@ const LiveGame: React.FC<LiveGameProps> = ({ question, onAnswer, isAdmin, onPlay
           </div>
       )}
 
-      {showResult && question.type !== QuestionType.INPUT && (
+      {showResult && !isInputType && (
         <div className="mt-4 text-center animate-bounce">
             {selectedOption === question.correctIndex ? (
                  <div className="bg-green-100 text-green-700 p-3 rounded-xl inline-block px-6">

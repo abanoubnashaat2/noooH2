@@ -84,6 +84,7 @@ const App = () => {
 
   // Sound & Notification Logic
   const prevQuestionId = useRef<string | null>(null);
+  const prevQuestionTriggerTime = useRef<number | null>(null);
   const prevCommandTime = useRef<number | null>(null);
 
   // Load user from local storage
@@ -178,14 +179,21 @@ const App = () => {
             setConnectionError('');
             
             // Notification Logic (Sound/Vibrate) for Questions
-            if (data && data.id && data.id !== prevQuestionId.current) {
+            // Check if ID changed OR triggeredAt changed
+            const isNewTrigger = data && (data.id !== prevQuestionId.current || (data.triggeredAt && data.triggeredAt !== prevQuestionTriggerTime.current));
+            
+            if (isNewTrigger) {
                 playNotificationSound();
                 if (navigator.vibrate) navigator.vibrate([300, 100, 300]);
-                
-                // Also send system notification for new questions
                 sendSystemNotification("⚡ سؤال جديد!", "أسرع للإجابة وكسب النقاط");
+                
+                prevQuestionId.current = data.id;
+                prevQuestionTriggerTime.current = data.triggeredAt || null;
+            } else if (!data) {
+                prevQuestionId.current = null;
+                prevQuestionTriggerTime.current = null;
             }
-            prevQuestionId.current = data ? data.id : null;
+
         }, (error) => {
              // Error handling...
              console.error(error);
@@ -345,6 +353,7 @@ const App = () => {
     const newScore = score + points;
     setScore(newScore);
     if (activeLiveQuestion) {
+        // Only mark ID as answered, but unique trigger logic is handled in LiveGame
         setAnsweredQuestionIds(prev => [...prev, activeLiveQuestion.id]);
     }
     if (user) {
@@ -409,8 +418,11 @@ const App = () => {
       if (!q) q = WHO_SAID_IT_QUESTIONS.find(x => x.id === qId);
       if (q) {
           const cleanQ = JSON.parse(JSON.stringify(q));
+          // ADD TIMESTAMP TO FORCE UPDATE ON CLIENT
+          cleanQ.triggeredAt = Date.now();
+
           if (db) set(ref(db, 'activeQuestion'), cleanQ).catch(alert);
-          else setActiveLiveQuestion(q);
+          else setActiveLiveQuestion(cleanQ);
           setJustSentId(qId);
           setTimeout(() => setJustSentId(null), 1500);
       }
@@ -466,6 +478,10 @@ const App = () => {
                   await set(ref(db, 'activeQuestion'), null);
                   await set(ref(db, 'activeCommand'), null); // Also reset command
                   
+                  // Also clear answered question IDs locally for admin
+                  localStorage.removeItem('noah_answered_ids');
+                  setAnsweredQuestionIds([]);
+
                   setLeaderboardData([]);
                   setConfirmModal(prev => ({...prev, isOpen: false}));
                   alert("تم تصفير الترتيب وحذف المستخدمين بنجاح ✅");
@@ -536,6 +552,14 @@ const App = () => {
 
     switch (view) {
       case View.HOME:
+        // IMPORTANT: We now also rely on triggeredAt to decide if it's "New" in terms of notification,
+        // but for "Is Answered" logic, we still look at the ID.
+        // If the admin re-sends the same ID, the user is technically allowed to answer again if we cleared the local state?
+        // NO, if ID is same, we keep it locked usually.
+        // BUT if user is saying "it appears only for admin", it means they think they should answer but can't.
+        // Let's assume if Admin re-triggers, they WANT to allow answering again?
+        // No, typically ID persists. 
+        // For now, let's assume the user hasn't answered this specific ID.
         const isCurrentQuestionAnswered = activeLiveQuestion && answeredQuestionIds.includes(activeLiveQuestion.id);
 
         return (
