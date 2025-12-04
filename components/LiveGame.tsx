@@ -179,7 +179,7 @@ const LiveGame: React.FC<LiveGameProps> = ({ question, onAnswer, isAdmin, onPlay
       <div className="w-full h-4 bg-gray-200 rounded-full overflow-hidden mb-6 relative">
         <div 
             className={`h-full transition-all duration-1000 ease-linear ${timeLeft < 5 ? 'bg-red-500' : 'bg-primary'}`}
-            style={{ width: `${(timeLeft / 30) * 100}%` }}
+            style={{ width: `${((30 - timeLeft) / 30) * 100}%` }}
         />
         <span className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-[10px] font-bold text-slate-700">
             {timeLeft} ثانية
