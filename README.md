@@ -1,20 +1,31 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# تطبيق سفينة نوح 🚢
 
-# Run and deploy your AI Studio app
+تطبيق مسابقات تفاعلي للرحلات الكنسية، مبني باستخدام React و Firebase.
 
-This contains everything you need to run your app locally.
+## أوامر التشغيل (Development)
 
-View your app in AI Studio: https://ai.studio/apps/drive/1UjwwwCuEB0XFGy07ylu8ad4et8m-YP0V
+لتشغيل المشروع محلياً:
 
-## Run Locally
+```bash
+npm install
+npm run dev
+```
 
-**Prerequisites:**  Node.js
+## بناء النسخة النهائية (Build)
 
+لإنشاء ملفات الإنتاج في مجلد `dist`:
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+```bash
+npm run build
+```
+
+## خطوات النشر (Deployment)
+
+### 1. GitHub
+- قم بإنشاء مستودع جديد (Repository) على GitHub.
+- ارفع الملفات (سيقوم `.gitignore` بمنع رفع مجلد node_modules تلقائياً).
+
+### 2. Netlify
+- يمكنك ربط حساب Netlify بمستودع GitHub الخاص بك للنشر التلقائي (Continuous Deployment).
+- سيقوم Netlify بقراءة ملف `netlify.toml` واستخدام الإعدادات الموجودة فيه تلقائياً.
+- أو يمكنك سحب مجلد `dist` (بعد عمل build) وإفلاته في صفحة Netlify Drop.
