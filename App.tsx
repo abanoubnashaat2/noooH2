@@ -601,7 +601,14 @@ const App = () => {
                         <input type="text" value={commandInput} onChange={(e) => setCommandInput(e.target.value)} placeholder="اكتب الأمر أو الحكم هنا..." className="w-full p-3 rounded-xl border border-yellow-300 focus:outline-none focus:ring-2 focus:ring-yellow-500"/>
                         <div className="flex gap-2">
                             <button type="submit" className="flex-1 bg-yellow-500 hover:bg-yellow-600 text-white font-bold py-2 rounded-xl transition-colors">إرسال 🔔</button>
-                            {activeCommand && <button type="button" onClick={handleClearCommand} className="px-4 bg-slate-200 text-slate-600 font-bold rounded-xl">إخفاء 🔕</button>}
+                            <button 
+                                type="button" 
+                                onClick={handleClearCommand} 
+                                disabled={!activeCommand} 
+                                className={`px-4 font-bold rounded-xl transition-colors ${activeCommand ? 'bg-red-100 text-red-600 hover:bg-red-200' : 'bg-slate-100 text-slate-300 cursor-not-allowed'}`}
+                            >
+                                مسح الأمر 🔕
+                            </button>
                         </div>
                     </form>
                     {activeCommand && <p className="text-[10px] text-green-600 mt-2 font-bold">✅ يوجد أمر نشط حالياً للمستخدمين: {activeCommand.text}</p>}
